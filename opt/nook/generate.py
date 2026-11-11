@@ -10,8 +10,10 @@ from zoneinfo import ZoneInfo
 import requests
 from PIL import Image, ImageDraw, ImageFont
 
-LAT, LON = 50.45, 30.52            # ваші координати (приклад — Київ)
+LAT = float(os.environ["LAT"])
+LON = float(os.environ["LON"])
 TZ = "Europe/Kyiv"
+
 W, H = 600, 800                    # перевірте розмір у README клієнта
 FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 FONT_B = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
