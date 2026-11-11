@@ -27,6 +27,8 @@ jobs:
         env:
           LAT: ${{ secrets.LAT }}
           LON: ${{ secrets.LON }}
+          TZ: ${{ secrets.TZ }}
+          CITY: ${{ secrets.CITY }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
