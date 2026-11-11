@@ -12,7 +12,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 LAT = float(os.environ["LAT"])
 LON = float(os.environ["LON"])
-TZ = os.environ.get("TZ")
+TZ = os.environ.get("TZ") or "America/Toronto"
 
 W, H = 600, 800                    # перевірте розмір у README клієнта
 FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
