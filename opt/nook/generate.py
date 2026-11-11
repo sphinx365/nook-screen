@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+import os
+os.makedirs("site", exist_ok=True)
+OUT = "site/screen.png"
+
 import calendar
 import datetime as dt
 from zoneinfo import ZoneInfo
@@ -9,7 +13,6 @@ from PIL import Image, ImageDraw, ImageFont
 LAT, LON = 50.45, 30.52            # ваші координати (приклад — Київ)
 TZ = "Europe/Kyiv"
 W, H = 600, 800                    # перевірте розмір у README клієнта
-OUT = "/opt/nook/www/screen.png"
 FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 FONT_B = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 
