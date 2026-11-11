@@ -204,25 +204,25 @@ def render(data, now):
         d.rounded_rectangle((x0, cy - 4, x1, cy + 4), radius=4, fill=0)
         d.text((570, cy), f"{round(highs[i])}°", font=f_day_t, fill=0, anchor="rm")
 
-    # Calendar: bottom quarter, selected day inverted
+     # Calendar: bottom quarter, selected day inverted
     d.line((0, CAL_TOP, W, CAL_TOP), fill=0, width=2)
     today = now.date()
-    d.text((30, CAL_TOP + 12), f"{MONTHS[today.month - 1]} {today.year}",
+    d.text((30, CAL_TOP + 8), f"{MONTHS[today.month - 1]} {today.year}",
            font=f_cal_title, fill=0)
     cw = (W - 60) / 7
     for c, name in enumerate(WD_SHORT):
-        d.text((30 + cw * (c + 0.5), CAL_TOP + 40), name,
+        d.text((30 + cw * (c + 0.5), CAL_TOP + 34), name,
                font=f_cal_wd, fill=0, anchor="ma")
     weeks = calendar.Calendar(firstweekday=0).monthdayscalendar(today.year, today.month)
-    row_h = 22
+    row_h = 24
     for r, week in enumerate(weeks):
         for c, day_num in enumerate(week):
             if not day_num:
                 continue
             cx = 30 + cw * (c + 0.5)
-            cy = CAL_TOP + 64 + r * row_h + row_h / 2
+            cy = CAL_TOP + 54 + r * row_h + row_h / 2
             if day_num == today.day:
-                d.ellipse((cx - 10, cy - 10, cx + 10, cy + 10), fill=0)
+                d.ellipse((cx - 12, cy - 12, cx + 12, cy + 12), fill=0)
                 d.text((cx, cy), str(day_num), font=f_cal_day, fill=255, anchor="mm")
             else:
                 d.text((cx, cy), str(day_num), font=f_cal_day, fill=0, anchor="mm")
