@@ -246,10 +246,6 @@ def fetch():
 
 
 def main():
-    LAT: ${{ secrets.LAT }}
-    LON: ${{ secrets.LON }}
-    TZ: ${{ secrets.TZ }}
-    CITY: ${{ secrets.CITY }}
     if not (LAT and LON and TZ):
         raise SystemExit("Set LAT, LON and TZ environment variables")
     now = dt.datetime.now(ZoneInfo(TZ))
