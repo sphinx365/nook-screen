@@ -263,22 +263,22 @@ def render(fc, aq, now):
     cur, hourly, daily = fc["current"], fc["hourly"], fc["daily"]
     T = 1  # index of today; past_days=1 puts yesterday at index 0
 
-    # Top left: condition icon and text
-    base = base_kind(cur["weather_code"])
-    cond = "Ясна ніч" if base == "clear" and not cur["is_day"] else KIND_TEXT[base]
-    icon(d, icon_name(cur["weather_code"], cur["is_day"]), 89, 22, 96)
-    d.text((137, 150), cond, font=f_cond, fill=0, anchor="ms")
-    d.line((262, 22, 262, 200), fill=0, width=2)
-
-    # Top middle: city, temperature, min and max pills
-    d.text((280, 22), CITY, font=f_city, fill=0, anchor="lt")
-    d.text((276, 150), f"{round(cur['temperature_2m'])}°", font=f_temp, fill=0, anchor="ls")
+    # Top left: city, temperature, min and max pills
+    d.text((24, 22), CITY, font=f_city, fill=0, anchor="lt")
+    d.text((20, 150), f"{round(cur['temperature_2m'])}°", font=f_temp, fill=0, anchor="ls")
     lo = round(daily["temperature_2m_min"][T])
     hi = round(daily["temperature_2m_max"][T])
-    x = pill(d, 280, 182, f"Мін {deg(lo)}", f_pill)
+    x = pill(d, 24, 182, f"Мін {deg(lo)}", f_pill)
     pill(d, x + 10, 182, f"Макс {deg(hi)}", f_pill)
-    d.line((486, 22, 486, 200), fill=0, width=2)
+    d.line((262, 22, 262, 200), fill=0, width=2)
 
+    # Top middle: condition icon and text
+    base = base_kind(cur["weather_code"])
+    cond = "Ясна ніч" if base == "clear" and not cur["is_day"] else KIND_TEXT[base]
+    icon(d, icon_name(cur["weather_code"], cur["is_day"]), 327, 22, 96)
+    d.text((375, 150), cond, font=f_cond, fill=0, anchor="ms")
+    d.line((486, 22, 486, 200), fill=0, width=2)
+    
     # Top right: details with dotted separators
     wind = (f"{WIND_DIRS[round(cur['wind_direction_10m'] / 45) % 8]} "
             f"{round(cur['wind_speed_10m'])} км/г")
