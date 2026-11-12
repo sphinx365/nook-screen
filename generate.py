@@ -10,25 +10,30 @@ from PIL import Image, ImageDraw, ImageFont
 
 LAT = os.environ.get("LAT")
 LON = os.environ.get("LON")
-TZ = os.environ.get("TZ", "")
+TZ = os.environ.get("TZ")
 CITY = os.environ.get("CITY", "")
 
-W, H = 600, 800
-CAL_TOP = 600                 # calendar: 600..800 = 1/4 of the screen
+W, H = 800, 600
+CAL_TOP = 600
 OUT = "site/screen.png"
+FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
+AIR_URL = "https://air-quality-api.open-meteo.com/v1/air-quality"
 
 WD_SHORT = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"]
 MONTHS = ["Січень", "Лютий", "Березень", "Квітень", "Травень", "Червень",
           "Липень", "Серпень", "Вересень", "Жовтень", "Листопад", "Грудень"]
+WIND_DIRS = ["Пн", "ПнСх", "Сх", "ПдСх", "Пд", "ПдЗх", "Зх", "ПнЗх"]
 KIND_TEXT = {
-    "clear": "Сонячно",
+    "clear": "Сонячно, краса",
     "partly": "Трохи хмарок",
-    "cloudy": "Хмарно",
-    "fog": "Туман",
+    "cloudy": "Хмарно, сіро",
+    "fog": "Туман, як у фільмі",
     "rain": "Дощ, парасолька",
-    "snow": "Сніжить",
+    "snow": "Сніжить, ура",
     "storm": "Гроза, краще вдома",
 }
+SYNODIC = 29.530588853
+REF_NEW_MOON = dt.datetime(2000, 1, 6, 18, 14, tzinfo=dt.timezone.utc)
 
 REG_FONTS = [
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
@@ -140,79 +145,198 @@ def draw_icon(d, name, x, y, size):
                    (cx + 5 * s, cy + 12 * s), (cx + 0.5 * s, cy + 12 * s)], fill=0)
 
 
+# ---------- text helpers ----------
+
+def minus(n):
+    if n > 0:
+        return f"+{n}"
+    if n < 0:
+        return f"−{abs(n)}"
+    return "0"
+
+
+def aqi_text(v):
+    if v is None:
+        return "н/д"
+    if v <= 50:
+        return "добре"
+    if v <= 100:
+        return "помірно"
+    if v <= 150:
+        return "погано"
+    return "дуже погано"
+
+
+def moon_text(now_utc):
+    days = (now_utc - REF_NEW_MOON).total_seconds() / 86400
+    phase = days % SYNODIC
+    if phase < SYNODIC / 2:
+        name, left = "Повня", SYNODIC / 2 - phase
+    else:
+        name, left = "Новий місяць", SYNODIC - phase
+    n = round(left)
+    when = "сьогодні" if n == 0 else f"через {n} дн."
+    return f"{name} {when}"
+
+
+def clock(iso):
+    return dt.datetime.fromisoformat(iso).strftime("%H:%M")
+
+
+def minutes_between(a, b):
+    return (dt.datetime.fromisoformat(b) - dt.datetime.fromisoformat(a)).total_seconds() / 60
+
+
+# ---------- data ----------
+
+def fetch_forecast():
+    r = requests.get(FORECAST_URL, timeout=15, params={
+        "latitude": LAT, "longitude": LON, "timezone": TZ,
+        "current": "temperature_2m,apparent_temperature,relative_humidity_2m,"
+                   "pressure_msl,wind_speed_10m,wind_direction_10m,weather_code,is_day",
+        "hourly": "temperature_2m,weather_code,is_day,precipitation,precipitation_probability",
+        "daily": "weather_code,temperature_2m_max,temperature_2m_min,"
+                 "precipitation_probability_max,sunrise,sunset,uv_index_max",
+        "past_days": 1,
+        "forecast_days": 6,
+    })
+    r.raise_for_status()
+    return r.json()
+
+
+def fetch_air_quality():
+    try:
+        r = requests.get(AIR_URL, timeout=10, params={
+            "latitude": LAT, "longitude": LON, "timezone": TZ, "current": "us_aqi",
+        })
+        r.raise_for_status()
+        return r.json()["current"]["us_aqi"]
+    except (requests.RequestException, KeyError, ValueError):
+        return None
+
+
 # ---------- layout ----------
 
-def render(data, now):
+def render(fc, aq, now):
     img = Image.new("L", (W, H), 255)
     d = ImageDraw.Draw(img)
 
-    f_city = font(34, True)
-    f_big = font(120)
-    f_cond = font(24)
-    f_small = font(22)
-    f_hour_lbl = font(20, True)
-    f_hour_t = font(24)
-    f_day = font(24, True)
-    f_day_t = font(24)
-    f_cal_title = font(22, True)
-    f_cal_wd = font(16, True)
-    f_cal_day = font(17)
+    f_big = font(96)
+    f_h = font(26, True)
+    f_bold = font(18, True)
+    f_bold20 = font(20, True)
+    f_t = font(22)
+    f_s = font(18)
+    f_xs = font(15)
 
-    cur, hourly, daily = data["current"], data["hourly"], data["daily"]
+    cur, hourly, daily = fc["current"], fc["hourly"], fc["daily"]
+    T = 1  # index of today; past_days=1 puts yesterday at index 0
 
-    # Header: city, current temp, condition, high/low
-    d.text((30, 22), CITY, font=f_city, fill=0)
-    d.text((30, 70), f"{round(cur['temperature_2m'])}°", font=f_big, fill=0)
+    # Header, left: condition icon and text
     base = base_kind(cur["weather_code"])
     cond = "Ясна ніч" if base == "clear" and not cur["is_day"] else KIND_TEXT[base]
-    draw_icon(d, icon_name(cur["weather_code"], cur["is_day"]), 470, 16, 64)
-    d.text((570, 92), cond, font=f_cond, fill=0, anchor="ra")
-    hi0, lo0 = round(daily["temperature_2m_max"][0]), round(daily["temperature_2m_min"][0])
-    d.text((570, 124), f"Макс. {hi0}°   Мін. {lo0}°", font=f_small, fill=0, anchor="ra")
-    d.line((30, 205, 570, 205), fill=0, width=2)
+    draw_icon(d, icon_name(cur["weather_code"], cur["is_day"]), 20, 26, 90)
+    d.text((20, 124), cond, font=f_t, fill=0)
 
-    # Hourly strip: now + next 5 hours
-    now_key = cur["time"][:13] + ":00"
+    # Header, middle: city, temperature, low on left, high on right
+    d.text((270, 14), CITY, font=f_h, fill=0)
+    d.text((266, 36), f"{round(cur['temperature_2m'])}°", font=f_big, fill=0)
+    lo_today = round(daily["temperature_2m_min"][T])
+    hi_today = round(daily["temperature_2m_max"][T])
+    d.text((270, 150), f"Мін. {lo_today}°   Макс. {hi_today}°", font=f_s, fill=0)
+
+    # Header, right: details
+    wind = (f"{WIND_DIRS[round(cur['wind_direction_10m'] / 45) % 8]} "
+            f"{round(cur['wind_speed_10m'])} км/год")
+    stats = [
+        ("Відчувається", f"{round(cur['apparent_temperature'])}°"),
+        ("Вологість", f"{round(cur['relative_humidity_2m'])}%"),
+        ("Тиск", f"{round(cur['pressure_msl'])} гПа"),
+        ("Вітер", wind),
+    ]
+    for i, (label, value) in enumerate(stats):
+        y = 26 + i * 38
+        d.text((500, y), label, font=f_s, fill=0)
+        d.text((780, y), value, font=f_bold20, fill=0, anchor="ra")
+    d.text((780, 4), f"Оновлено {now:%H:%M}", font=f_xs, fill=0, anchor="ra")
+    d.line((260, 10, 260, 170), fill=0, width=2)
+    d.line((480, 10, 480, 170), fill=0, width=2)
+    d.line((20, 180, 780, 180), fill=0, width=2)
+
+    # Hourly precipitation: next 24 hours
     times = hourly["time"]
+    now_key = now.strftime("%Y-%m-%dT%H:00")
     start = next((i for i, t in enumerate(times) if t >= now_key), 0)
-    for i in range(6):
+    d.text((20, 188), "Опади, наступні 24 год", font=f_bold20, fill=0)
+    base_y, chart_h = 320, 90
+    d.text((50, 275), "50%", font=f_xs, fill=0, anchor="rm")
+    d.text((50, base_y), "0", font=f_xs, fill=0, anchor="rm")
+    for i in range(24):
         idx = start + i
-        cx = 30 + 45 + 90 * i
-        label = "Зараз" if i == 0 else times[idx][11:16]
-        d.text((cx, 222), label, font=f_hour_lbl, fill=0, anchor="ma")
-        draw_icon(d, icon_name(hourly["weather_code"][idx], hourly["is_day"][idx]),
-                  cx - 22, 250, 44)
-        d.text((cx, 306), f"{round(hourly['temperature_2m'][idx])}°",
-               font=f_hour_t, fill=0, anchor="ma")
-    d.line((30, 342, 570, 342), fill=0, width=1)
+        p = hourly["precipitation_probability"][idx] or 0
+        mm = hourly["precipitation"][idx] or 0
+        xc = 60 + 30 * i + 15
+        h = p / 100 * chart_h
+        if p > 0:
+            d.rectangle((xc - 9, base_y - h, xc + 9, base_y), fill=0)
+        if mm >= 0.1:
+            d.text((xc, base_y - h - 4), f"{mm:.1f}", font=f_xs, fill=0, anchor="ms")
+        if i % 3 == 0:
+            d.text((xc, base_y + 6), times[idx][11:13] + ":00",
+                   font=f_xs, fill=0, anchor="ma")
+    d.line((60, base_y, 780, base_y), fill=0, width=1)
+    d.line((20, 350, 780, 350), fill=0, width=2)
 
-    # 5-day list with range bars scaled to the whole week
-    dates = [dt.date.fromisoformat(s) for s in daily["time"][:5]]
-    highs = daily["temperature_2m_max"][:5]
-    lows = daily["temperature_2m_min"][:5]
+    # Five-day list with range bars scaled to the whole week
+    days = list(range(T, T + 5))
+    lows = [daily["temperature_2m_min"][k] for k in days]
+    highs = [daily["temperature_2m_max"][k] for k in days]
     wmin, wmax = min(lows), max(highs)
     span = max(wmax - wmin, 1)
-    for i in range(5):
-        cy = 362 + i * 44 + 16
-        name = "Сьогодні" if i == 0 else WD_SHORT[dates[i].weekday()]
-        d.text((30, cy), name, font=f_day, fill=0, anchor="lm")
-        draw_icon(d, icon_name(daily["weather_code"][i], 1), 168, cy - 16, 32)
-        d.text((240, cy), f"{round(lows[i])}°", font=f_day_t, fill=0, anchor="rm")
-        d.rounded_rectangle((256, cy - 4, 488, cy + 4), radius=4, fill=215)
-        x0 = 256 + (lows[i] - wmin) / span * 232
-        x1 = max(256 + (highs[i] - wmin) / span * 232, x0 + 8)
+    TX0, TX1 = 200, 520
+    for row, k in enumerate(days):
+        cy = 360 + row * 28 + 14
+        date = dt.date.fromisoformat(daily["time"][k])
+        name = "Сьогодні" if k == T else WD_SHORT[date.weekday()]
+        d.text((20, cy), name, font=f_bold, fill=0, anchor="lm")
+        draw_icon(d, icon_name(daily["weather_code"][k], 1), 116, cy - 13, 26)
+        d.text((190, cy), f"{round(lows[row])}°", font=f_s, fill=0, anchor="rm")
+        d.rounded_rectangle((TX0, cy - 4, TX1, cy + 4), radius=4, fill=215)
+        x0 = TX0 + (lows[row] - wmin) / span * (TX1 - TX0)
+        x1 = max(TX0 + (highs[row] - wmin) / span * (TX1 - TX0), x0 + 8)
         d.rounded_rectangle((x0, cy - 4, x1, cy + 4), radius=4, fill=0)
-        d.text((570, cy), f"{round(highs[i])}°", font=f_day_t, fill=0, anchor="rm")
+        d.text((530, cy), f"{round(highs[row])}°", font=f_s, fill=0, anchor="lm")
+        prob = daily["precipitation_probability_max"][k] or 0
+        d.text((620, cy), f"Опади {prob}%", font=f_s, fill=0, anchor="lm")
+    d.line((20, 500, 780, 500), fill=0, width=2)
 
-     # Calendar: bottom quarter, selected day inverted
+    # Bottom bar: sun, moon, air, UV, rain today
+    sr, ss = daily["sunrise"][T], daily["sunset"][T]
+    day_change = round(minutes_between(sr, ss)
+                       - minutes_between(daily["sunrise"][T - 1], daily["sunset"][T - 1]))
+    d.text((20, 512), f"Схід {clock(sr)}", font=f_s, fill=0)
+    d.text((20, 536), f"Захід {clock(ss)}", font=f_s, fill=0)
+    d.text((20, 560), f"Світлового дня {minus(day_change)} хв", font=f_s, fill=0)
+
+    draw_icon(d, "moon", 250, 508, 40)
+    d.text((300, 514), moon_text(now.astimezone(dt.timezone.utc)), font=f_s, fill=0)
+
+    today_str = now.strftime("%Y-%m-%d")
+    precip_today = sum((v or 0) for t, v in zip(times, hourly["precipitation"])
+                       if t.startswith(today_str))
+    d.text((520, 512), f"Повітря: {aqi_text(aq)}", font=f_s, fill=0)
+    d.text((520, 536), f"УФ-індекс: {round(daily['uv_index_max'][T])}", font=f_s, fill=0)
+    d.text((520, 560), f"Опади сьогодні: {precip_today:.1f} мм", font=f_s, fill=0)
+
+    # Calendar: bottom quarter, selected day inverted
     d.line((0, CAL_TOP, W, CAL_TOP), fill=0, width=2)
     today = now.date()
     d.text((30, CAL_TOP + 8), f"{MONTHS[today.month - 1]} {today.year}",
-           font=f_cal_title, fill=0)
+           font=f_bold20, fill=0)
     cw = (W - 60) / 7
     for c, name in enumerate(WD_SHORT):
         d.text((30 + cw * (c + 0.5), CAL_TOP + 34), name,
-               font=f_cal_wd, fill=0, anchor="ma")
+               font=f_xs, fill=0, anchor="ma")
     weeks = calendar.Calendar(firstweekday=0).monthdayscalendar(today.year, today.month)
     row_h = 24
     for r, week in enumerate(weeks):
@@ -223,33 +347,19 @@ def render(data, now):
             cy = CAL_TOP + 54 + r * row_h + row_h / 2
             if day_num == today.day:
                 d.ellipse((cx - 12, cy - 12, cx + 12, cy + 12), fill=0)
-                d.text((cx, cy), str(day_num), font=f_cal_day, fill=255, anchor="mm")
+                d.text((cx, cy), str(day_num), font=f_xs, fill=255, anchor="mm")
             else:
-                d.text((cx, cy), str(day_num), font=f_cal_day, fill=0, anchor="mm")
+                d.text((cx, cy), str(day_num), font=f_xs, fill=0, anchor="mm")
     return img
 
 
-# ---------- data and main ----------
-
-def fetch():
-    if not LAT or not LON:
-        raise SystemExit("Set LAT and LON environment variables")
-    r = requests.get("https://api.open-meteo.com/v1/forecast", timeout=15, params={
-        "latitude": LAT, "longitude": LON, "timezone": TZ,
-        "current": "temperature_2m,weather_code,is_day",
-        "hourly": "temperature_2m,weather_code,is_day",
-        "daily": "weather_code,temperature_2m_max,temperature_2m_min",
-        "forecast_days": 6,
-    })
-    r.raise_for_status()
-    return r.json()
-
+# ---------- main ----------
 
 def main():
     if not (LAT and LON and TZ):
         raise SystemExit("Set LAT, LON and TZ environment variables")
     now = dt.datetime.now(ZoneInfo(TZ))
-    img = render(fetch(), now)
+    img = render(fetch_forecast(), fetch_air_quality(), now)
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     img.save(OUT, optimize=True)
 
